@@ -1,0 +1,95 @@
+void automation.Backfill_Checkout_URLs()
+{
+// One-time / on-demand backfill: fills Checkout_Impulso_URL and Checkout_Verificado_URL
+// for every Lead where either field is empty, based on Top_Category.
+// Leads with Individual / Community / -None- have no checkout URLs and are skipped.
+categorySlugs = Map();
+categorySlugs.put("Stay","stay");
+categorySlugs.put("Relocate","relocate");
+categorySlugs.put("Experience","experience");
+categorySlugs.put("Live","live");
+categorySlugs.put("Visit","visit");
+baseURL = "https://www.igopanama.com/checkout/";
+pages = {1,2,3,4,5,6,7,8,9,10};
+toUpdate = List();
+for each  category in categorySlugs.keys()
+{
+	slug = categorySlugs.get(category);
+	impulsoURL = baseURL + slug + "-impulso";
+	verificadoURL = baseURL + slug + "-verificado";
+	for each  page in pages
+	{
+		records = zoho.crm.searchRecords("Leads","(Top_Category:equals:" + category + ")",page,200);
+		if(records.isEmpty() || records.get(0).get("id") == null)
+		{
+			break;
+		}
+		for each  rec in records
+		{
+			currentImpulso = ifnull(rec.get("Checkout_Impulso_URL"),"").trim();
+			currentVerificado = ifnull(rec.get("Checkout_Verificado_URL"),"").trim();
+			if(currentImpulso == "" || currentVerificado == "")
+			{
+				row = Map();
+				row.put("id",rec.get("id"));
+				if(currentImpulso == "")
+				{
+					row.put("Checkout_Impulso_URL",impulsoURL);
+				}
+				if(currentVerificado == "")
+				{
+					row.put("Checkout_Verificado_URL",verificadoURL);
+				}
+				toUpdate.add(row);
+			}
+		}
+		if(records.size() < 200)
+		{
+			break;
+		}
+	}
+}
+info "Leads to update: " + toUpdate.size();
+// ===== Bulk update in batches of 100 (API limit per call) =====
+updated = 0;
+failed = 0;
+batch = List();
+for each  row in toUpdate
+{
+	batch.add(row);
+	if(batch.size() == 100)
+	{
+		resp = zoho.crm.bulkUpdate("Leads",batch);
+		for each  r in resp
+		{
+			if(r.get("code") == "SUCCESS")
+			{
+				updated = updated + 1;
+			}
+			else
+			{
+				failed = failed + 1;
+				info r;
+			}
+		}
+		batch = List();
+	}
+}
+if(batch.size() > 0)
+{
+	resp = zoho.crm.bulkUpdate("Leads",batch);
+	for each  r in resp
+	{
+		if(r.get("code") == "SUCCESS")
+		{
+			updated = updated + 1;
+		}
+		else
+		{
+			failed = failed + 1;
+			info r;
+		}
+	}
+}
+info "Done. Updated: " + updated + " | Failed: " + failed;
+}
